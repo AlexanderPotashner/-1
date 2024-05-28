@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# Функции для обработки различных типов действий
+function show_users() {
+    cut -d: -f1,6 /etc/passwd | sort
+}
+
+function show_processes() {
+    ps -e --format pid,comm | sort -n
+}
+
+function print_help() {
+    echo "Usage: $0 [options]"
+    echo "Options:"
+    echo "  -u, --users                Show users and their home directories"
+    echo "  -p, --processes            Show running processes sorted by PID"
+    echo "  -h, --help                 Display this help and exit"
+    echo "  -l PATH, --log PATH        Log output to the specified file"
+    echo "  -e PATH, --errors PATH     Log errors to the specified file"
+}
+
+# Обработка аргументов командной строки
+TEMP=$(getopt -o uphl:e: --long users,processes,help,log:,errors: -n "$0" -- "$@")
+if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+
+eval set -- "$TEMP"
+
+LOG_PATH=""
+ERRORS_PATH=""
+
+while true; do
+    case "$1" in
+        -u | --users ) ACTION="users"; shift ;;
+        -p | --processes ) ACTION="processes"; shift ;;
+        -h | --help ) print_help; exit 0 ;;
+        -l | --log ) LOG_PATH="$2"; shift 2 ;;
+        -e | --errors ) ERRORS_PATH="$2"; shift 2 ;;
+        -- ) shift; break ;;
+        * ) break ;;
+    esac
+done
+
+if [ -n "$LOG_PATH" ] && [ ! -w "$(dirname "$LOG_PATH")" ]; then
+    echo "Error: Cannot write to log file path: $LOG_PATH" >&2
+    exit 1
+fi
+
+if [ -n "$ERRORS_PATH" ] && [ ! -w "$(dirname "$ERRORS_PATH")" ]; then
+    echo "Error: Cannot write to error file path: $ERRORS_PATH" >&2
+    exit 1
+fi
+
+{
+    case "$ACTION" in
+        users)
+            show_users
+            ;;
+        processes)
+            show_processes
+            ;;
+        *)
+            echo "No action specified. Use -h or --help for usage information." >&2
+            exit 1
+            ;;
+    esac
+} > >(if [ -n "$LOG_PATH" ]; then tee "$LOG_PATH"; else cat; fi) 2> >(if [ -n "$ERRORS_PATH" ]; then tee "$ERRORS_PATH" >&2; else cat >&2; fi)
