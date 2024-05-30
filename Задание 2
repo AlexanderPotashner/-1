@@ -1,0 +1,111 @@
+ Сделать тестовое приложение на языке Си mysyslog-client, которое использует библиотеку libmysyslog и позволяет в аргументах командной строки задавать выводимый через библиотеку libmysyslog текст, уровень записи журнала, используемый драйвер и формат и путь к файлу. Аргументы командной строки обрабатывать через getopt.
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
+#include <string.h>
+#include "libmysyslog.h"
+
+void usage(const char *progname) {
+    fprintf(stderr, "Usage: %s -t text -l level -d driver -f format -p path\n", progname);
+}
+
+int main(int argc, char *argv[]) {
+    int opt;
+    char *text = NULL;
+    int level = -1;
+    char *driver = NULL;
+    char *format = NULL;
+    char *path = NULL;
+
+    while ((opt = getopt(argc, argv, "t:l:d:f:p:")) != -1) {
+        switch (opt) {
+            case 't':
+                text = optarg;
+                break;
+            case 'l':
+                level = atoi(optarg);
+                break;
+            case 'd':
+                driver = optarg;
+                break;
+            case 'f':
+                format = optarg;
+                break;
+            case 'p':
+                path = optarg;
+                break;
+            default:
+                usage(argv[0]);
+                return EXIT_FAILURE;
+        }
+    }
+
+    if (!text || level == -1 || !driver || !format || !path) {
+        usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    if (mysyslog_init(driver, format, path) != 0) {
+        fprintf(stderr, "Failed to initialize mysyslog\n");
+        return EXIT_FAILURE;
+    }
+
+    mysyslog_log(level, text);
+
+    mysyslog_close();
+    return EXIT_SUCCESS;
+}
+
+
+Сделать тестовое приложение демон mysyslog-daemon, который автоматически запускается во время старта компьютера и постоянно выводит в лог данные с разным уровнем. Приложение настраивается при помощи конфигурационного файла /etc/mysyslog/mysyslog.cfg. В конфигурационном файле задается: путь, формат и драйвер. Демон должен корректно обрабатывать получаемые сигналы и должен запускаться и останавливаться через systemctl.
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <unistd.h>
+#include <string.h>
+#include "libmysyslog.h"
+
+static volatile int keep_running = 1;
+
+void handle_signal(int signal) {
+    keep_running = 0;
+}
+
+void read_config(const char *config_file, char *driver, char *format, char *path) {
+    FILE *file = fopen(config_file, "r");
+    if (file == NULL) {
+        perror("Error opening config file");
+        exit(EXIT_FAILURE);
+    }
+
+    fscanf(file, "driver=%s\nformat=%s\npath=%s\n", driver, format, path);
+    fclose(file);
+}
+
+int main() {
+    char driver[256];
+    char format[256];
+    char path[256];
+
+    read_config("/etc/mysyslog/mysyslog.cfg", driver, format, path);
+
+    if (mysyslog_init(driver, format, path) != 0) {
+        fprintf(stderr, "Failed to initialize mysyslog\n");
+        return EXIT_FAILURE;
+    }
+
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
+    while (keep_running) {
+        mysyslog_log(MYSYSLOG_LEVEL_INFO, "Info message");
+        mysyslog_log(MYSYSLOG_LEVEL_WARNING, "Warning message");
+        mysyslog_log(MYSYSLOG_LEVEL_ERROR, "Error message");
+        sleep(5);
+    }
+
+    mysyslog_close();
+    return EXIT_SUCCESS;
+}
+
+
